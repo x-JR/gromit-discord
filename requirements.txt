@@ -1,0 +1,6 @@
+discord.py
+mysql-connector-python
+python-dotenv
+ics
+requests
+pytz
