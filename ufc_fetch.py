@@ -1,3 +1,13 @@
+import calendar
+import discord
+from datetime import datetime, timezone
+import requests
+from ics import Calendar
+import pytz
+import re
+import mysql.connector
+from mysql.connector import Error
+
 def get_this_month_range():
     today = datetime.now(timezone.utc)
     start_of_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -171,35 +181,164 @@ def check_and_store_ufc_events(db_config):
     except Exception as e:
         print(f"Error in check_and_store_ufc_events: {e}")
 
-def format_event_for_discord(record, webhook_url, url=None):
+async def format_event_for_discord(record, channel_id, bot, url=None):
     """
-    Format a SQL record as a Discord embed and send it to the given webhook URL.
+    Format a SQL record as a Discord embed and send it to the given channel ID using discord.py.
     Args:
         record (dict): The SQL record (column names as keys)
-        webhook_url (str): The Discord webhook URL
+        channel_id (int): The Discord channel ID
+        bot (discord.Client or discord.ext.commands.Bot): The Discord bot instance
         url (str, optional): Fallback URL for the embed
     """
-    import requests
     # Use event_url from record if available, else fallback to url param
     event_url = record.get('event_url') or url
-    embed = {
-        "title": record.get('event_name', 'UFC Event'),
-        "description": (record.get('event_description') or '').strip(),
-        "url": event_url,
-        "color": None,
-        "fields": [
-            {"name": "Event Date:", "value": record.get('event_date', 'N/A')},
-            {"name": "Location:", "value": record.get('event_location', 'N/A')}
-        ]
-    }
-    payload = {
-        "content": None,
-        "embeds": [embed],
-        "attachments": []
-    }
-    response = requests.post(webhook_url, json=payload)
-    if response.status_code >= 400:
-        print(f"Failed to send to Discord webhook: {response.status_code} {response.text}")
+    embed = discord.Embed(
+        title=record.get('event_name', 'UFC Event'),
+        description=(record.get('event_description') or '').strip(),
+        url=event_url,
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Event Date:", value=record.get('event_date', 'N/A'), inline=False)
+    embed.add_field(name="Location:", value=record.get('event_location', 'N/A'), inline=False)
+
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        # Try fetching the channel if not cached
+        channel = await bot.fetch_channel(channel_id)
+    if channel is not None:
+        await channel.send(embed=embed)
+        print(f"Event sent to Discord channel: {record.get('event_name')}")
     else:
-        print(f"Event sent to Discord webhook: {record.get('event_name')}")
-    return response
+        print(f"Failed to find Discord channel with ID: {channel_id}")
+
+
+def get_ufc_notify_channels(db_config):
+    """Fetch all channel IDs from the ufc_notify_channels table."""
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("SELECT channel_id FROM ufc_notify_channels")
+        return [row['channel_id'] for row in cursor.fetchall()]
+    except Error as e:
+        print(f"Database error: {e}")
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+def get_todays_ufc_events(db_config):
+    """Fetch UFC events scheduled for today (AEST) from the ufc_events table."""
+    aest = pytz.timezone('Australia/Sydney')
+    today = datetime.now(aest).strftime('%Y-%m-%d')
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        query = "SELECT * FROM ufc_events WHERE DATE(event_date) = %s"
+        cursor.execute(query, (today,))
+        return cursor.fetchall()
+    except Error as e:
+        print(f"Database error: {e}")
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+async def notify_todays_ufc_events(db_config, bot):
+    """Fetches and notifies about today's UFC events."""
+    print("Running daily UFC notify task...")
+    events = get_todays_ufc_events(db_config)
+    if not events:
+        print("No UFC events for today.")
+        return
+
+    channel_ids = get_ufc_notify_channels(db_config)
+    if not channel_ids:
+        print("No UFC notification channels found.")
+        return
+
+    for event in events:
+        for channel_id in channel_ids:
+            await format_event_for_discord(event, channel_id, bot)
+
+
+def get_weeks_ufc_events(db_config):
+    """Fetch UFC events scheduled for this week (AEST) from the ufc_events table."""
+    from datetime import date, timedelta
+    aest = pytz.timezone('Australia/Sydney')
+    today = datetime.now(aest).date()
+    start_of_week = today - timedelta(days=today.weekday())
+    end_of_week = start_of_week + timedelta(days=6)
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        query = "SELECT * FROM ufc_events WHERE DATE(event_date) BETWEEN %s AND %s ORDER BY event_date"
+        cursor.execute(query, (start_of_week, end_of_week))
+        return cursor.fetchall()
+    except Error as e:
+        print(f"Database error: {e}")
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+async def notify_weekly_ufc_events(db_config, bot):
+    """Fetches and notifies about this week's UFC events."""
+    print("Running weekly UFC notify task...")
+    events = get_weeks_ufc_events(db_config)
+    if not events:
+        print("No UFC events for this week.")
+        return
+
+    channel_ids = get_ufc_notify_channels(db_config)
+    if not channel_ids:
+        print("No UFC notification channels found.")
+        return
+
+    embed = discord.Embed(
+        title="UFC Events This Week",
+        color=discord.Color.gold()
+    )
+
+    for event in events:
+        event_date = event.get('event_date', 'N/A')
+        if isinstance(event_date, datetime):
+            event_date_str = event_date.strftime('%A, %d %B at %I:%M %p AEST')
+        else:
+            event_date_str = str(event_date)
+        
+        embed.add_field(
+            name=event.get('event_name', 'UFC Event'),
+            value=f"**Date:** {event_date_str}\n**Location:** {event.get('event_location', 'N/A')}",
+            inline=False
+        )
+
+    for channel_id in channel_ids:
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except (discord.NotFound, discord.Forbidden):
+                print(f"Failed to find or access channel with ID: {channel_id}")
+                continue
+        
+        if channel is not None:
+            await channel.send(embed=embed)
+            print(f"Weekly event summary sent to channel ID: {channel_id}")
+        else:
+            print(f"Could not send weekly summary to channel ID: {channel_id}")
