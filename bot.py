@@ -3,12 +3,8 @@ from discord.ext import tasks
 import os
 import json
 from dotenv import load_dotenv
-
-
 from ufc_fetch import check_and_store_ufc_events, notify_todays_ufc_events, notify_weekly_ufc_events
-
 import mysql.connector
-from mysql.connector import Error
 
 load_dotenv()
 
@@ -55,7 +51,7 @@ def get_random_record(db_config, table_name):
         
         return random_record
         
-    except Error as e:
+    except mysql.connector.Error as e:
         raise RuntimeError(f"Database error: {e}")
     finally:
         # Ensure resources are closed even if errors occur
@@ -110,7 +106,7 @@ def write_wall_of_shame(db_config, table_name, record_data):
             return cursor.lastrowid
         return None
         
-    except Error as e:
+    except mysql.connector.Error as e:
         if connection:
             connection.rollback()
         raise RuntimeError(f"Database error: {e}")

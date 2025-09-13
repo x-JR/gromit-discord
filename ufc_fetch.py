@@ -6,7 +6,6 @@ from ics import Calendar
 import pytz
 import re
 import mysql.connector
-from mysql.connector import Error
 
 def get_this_month_range():
     today = datetime.now(timezone.utc)
@@ -75,7 +74,7 @@ def write_ufc_event(db_config, table_name, record_data):
             return cursor.lastrowid
         return None
         
-    except Error as e:
+    except mysql.connector.Error as e:
         if connection:
             connection.rollback()
         raise RuntimeError(f"Database error: {e}")
@@ -133,7 +132,7 @@ def upsert_ufc_event(db_config, table_name, event_data):
             connection.commit()
             print(f"Inserted event: {event_data['event_name']}")
             return 'inserted'
-    except Error as e:
+    except mysql.connector.Error as e:
         if connection:
             connection.rollback()
         raise RuntimeError(f"Database error: {e}")
@@ -200,6 +199,7 @@ async def format_event_for_discord(record, channel_id, bot, url=None):
     )
     embed.add_field(name="Event Date:", value=record.get('event_date', 'N/A'), inline=False)
     embed.add_field(name="Location:", value=record.get('event_location', 'N/A'), inline=False)
+    embed.add_field(name="Watch Link:", value="https://shrimpstreams.live/", inline=False)
 
     channel = bot.get_channel(channel_id)
     if channel is None:
@@ -221,7 +221,7 @@ def get_ufc_notify_channels(db_config):
         cursor = connection.cursor(dictionary=True)
         cursor.execute("SELECT channel_id FROM ufc_notify_channels")
         return [row['channel_id'] for row in cursor.fetchall()]
-    except Error as e:
+    except mysql.connector.Error as e:
         print(f"Database error: {e}")
         return []
     finally:
@@ -243,7 +243,7 @@ def get_todays_ufc_events(db_config):
         query = "SELECT * FROM ufc_events WHERE DATE(event_date) = %s"
         cursor.execute(query, (today,))
         return cursor.fetchall()
-    except Error as e:
+    except mysql.connector.Error as e:
         print(f"Database error: {e}")
         return []
     finally:
@@ -287,7 +287,7 @@ def get_weeks_ufc_events(db_config):
         query = "SELECT * FROM ufc_events WHERE DATE(event_date) BETWEEN %s AND %s ORDER BY event_date"
         cursor.execute(query, (start_of_week, end_of_week))
         return cursor.fetchall()
-    except Error as e:
+    except mysql.connector.Error as e:
         print(f"Database error: {e}")
         return []
     finally:
