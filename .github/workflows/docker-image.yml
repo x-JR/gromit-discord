@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Logs you into Docker Hub using the secrets you created
+      # 2. Logs you into Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
