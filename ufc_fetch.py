@@ -322,9 +322,12 @@ async def notify_weekly_ufc_events(db_config, bot):
         else:
             event_date_str = str(event_date)
         
+        event_url = event.get('event_url')
+        event_link = f"\n**Link:** [Click Here]({event_url})" if event_url else ""
+        
         embed.add_field(
             name=event.get('event_name', 'UFC Event'),
-            value=f"**Date:** {event_date_str}\n**Location:** {event.get('event_location', 'N/A')}",
+            value=f"**Date:** {event_date_str}\n**Location:** {event.get('event_location', 'N/A')}{event_link}",
             inline=False
         )
 

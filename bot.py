@@ -204,14 +204,14 @@ async def daily_ufc_notify_task():
 async def before_daily_ufc_notify():
     await client.wait_until_ready()
 
-@tasks.loop(hours=168)  # Run once a week
+@tasks.loop(hours=24)  # Run once a day
 async def weekly_ufc_notify_task():
-    """Runs every week, posts this week's UFC event(s) at 9am AEST on Monday."""
+    """Runs every day, posts this week's UFC event if day is Monday."""
     import pytz
     from datetime import datetime
     aest = pytz.timezone('Australia/Sydney')
     now = datetime.now(aest)
-    if now.weekday() != 0 or now.hour != 9: # 0 = Monday
+    if now.weekday() != 0:
         return
     
     await notify_weekly_ufc_events(config, client)
@@ -230,7 +230,7 @@ async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})')
 
     print('Starting Rich presence...')
-    await client.change_presence(activity=discord.Streaming(name="Wallace & Gromit: The Curse of the Were-Rabbit", url="https://www.youtube.com/watch?v=1BQ_p73bPZg"))
+    await client.change_presence(activity=discord.Streaming(name="The Curse of the Were-Rabbit", url="https://www.youtube.com/watch?v=1BQ_p73bPZg"))
 
     print("\nStarting elevation process...\n")
     for guild in client.guilds:
@@ -319,7 +319,6 @@ async def on_message(message):
         commands.append(f"`{prefix}help` - Show this help message.")
         commands.append(f"`{prefix}ufcadd` - Add provided discord channel id to UFC notifications (admin only).")
         commands.append(f"`{prefix}ufcrem` - Remove this channel from UFC notifications (admin only).")
-        commands.append(f"`{prefix}hello` - Get a random response from the database. Testing purposes.")
         commands.append(f"`{prefix}wos` - Add a replied-to message to the Wall of Shame (reply to a message and use this command).")
         help_text = "**Available Commands:**\n" + "\n".join(commands)
         await message.channel.send(help_text)
