@@ -190,12 +190,12 @@ async def elevate(guild):
 
 @tasks.loop(minutes=60)
 async def daily_ufc_notify_task():
-    """Runs every hour, posts today's UFC event(s) at 8am AEST."""
+    """Runs every hour, posts today's UFC event(s) at 5am AEST."""
     import pytz
     from datetime import datetime
     aest = pytz.timezone('Australia/Sydney')
     now = datetime.now(aest)
-    if now.hour != 8:
+    if now.hour != 5:
         return
     
     await notify_todays_ufc_events(config, client)
@@ -204,14 +204,14 @@ async def daily_ufc_notify_task():
 async def before_daily_ufc_notify():
     await client.wait_until_ready()
 
-@tasks.loop(hours=168)  # Run once a week
+@tasks.loop(hours=24)  # Run once a day
 async def weekly_ufc_notify_task():
-    """Runs every week, posts this week's UFC event(s) at 9am AEST on Monday."""
+    """Runs every day, posts this week's UFC event if day is Monday."""
     import pytz
     from datetime import datetime
     aest = pytz.timezone('Australia/Sydney')
     now = datetime.now(aest)
-    if now.weekday() != 0 or now.hour != 9: # 0 = Monday
+    if now.weekday() != 0:
         return
     
     await notify_weekly_ufc_events(config, client)
@@ -230,7 +230,7 @@ async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})')
 
     print('Starting Rich presence...')
-    await client.change_presence(activity=discord.Streaming(name="Wallace & Gromit: The Curse of the Were-Rabbit", url="https://www.youtube.com/watch?v=1BQ_p73bPZg"))
+    await client.change_presence(activity=discord.Streaming(name="The Curse of the Were-Rabbit", url="https://www.youtube.com/watch?v=1BQ_p73bPZg"))
 
     print("\nStarting elevation process...\n")
     for guild in client.guilds:
@@ -248,21 +248,82 @@ async def on_ready():
     
     print("\nListening for commands...")
     
-# @client.event
-# async def on_message(message):
-#     if message.author == client.user:
-#         return
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
 
-#     if message.content.startswith(f'{prefix}hello'):
-#         try:
-#             record = get_random_record(config, 'response_table')
-#             if record:
-#                 response = record[2]
-#                 await message.channel.send(response)
-#             else:
-#                 await message.channel.send("No records found in the table")
-#         except RuntimeError as e:
-#             await message.channel.send(f"Error: {e}")
+    # UFC channel add command
+    if message.content.startswith(f'{prefix}ufcadd'):
+        if not message.author.guild_permissions.administrator:
+            await message.channel.send("You need to be an administrator to use this command.")
+            return
+        parts = message.content.split()
+        if len(parts) < 2:
+            await message.channel.send(f"Usage: {prefix}ufcadd <channel_id>")
+            return
+        try:
+            channel_id = int(parts[1])
+        except ValueError:
+            await message.channel.send("Invalid channel ID. Please provide a valid integer.")
+            return
+        connection = None
+        cursor = None
+        try:
+            connection = mysql.connector.connect(**config)
+            cursor = connection.cursor()
+            cursor.execute("INSERT IGNORE INTO ufc_notify_channels (channel_id) VALUES (%s)", (channel_id,))
+            connection.commit()
+            await message.channel.send(f"Channel (`{channel_id}`) has been added to UFC notifications.")
+        except Exception as e:
+            await message.channel.send(f"Error adding channel: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if connection and connection.is_connected():
+                connection.close()
+
+    # UFC channel remove command
+    if message.content.startswith(f'{prefix}ufcrem'):
+        if not message.author.guild_permissions.administrator:
+            await message.channel.send("You need to be an administrator to use this command.")
+            return
+        parts = message.content.split()
+        if len(parts) < 2:
+            await message.channel.send(f"Usage: {prefix}ufcrem <channel_id>")
+            return
+        try:
+            channel_id = int(parts[1])
+        except ValueError:
+            await message.channel.send("Invalid channel ID. Please provide a valid integer.")
+            return
+        connection = None
+        cursor = None
+        try:
+            connection = mysql.connector.connect(**config)
+            cursor = connection.cursor()
+            cursor.execute("DELETE FROM ufc_notify_channels WHERE channel_id = %s", (channel_id,))
+            connection.commit()
+            await message.channel.send(f"Channel (`{channel_id}`) has been removed from UFC notifications.")
+        except Exception as e:
+            await message.channel.send(f"Error removing channel: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if connection and connection.is_connected():
+                connection.close()
+
+    # Help command
+    if message.content.startswith(f'{prefix}help'):
+        commands = []
+        commands.append(f"`{prefix}help` - Show this help message.")
+        commands.append(f"`{prefix}ufcadd` - Add provided discord channel id to UFC notifications (admin only).")
+        commands.append(f"`{prefix}ufcrem` - Remove this channel from UFC notifications (admin only).")
+        commands.append(f"`{prefix}wos` - Add a replied-to message to the Wall of Shame (reply to a message and use this command).")
+        help_text = "**Available Commands:**\n" + "\n".join(commands)
+        await message.channel.send(help_text)
+        return
+
     
 #     if message.content.startswith(f'{prefix}wos'):
 #         if not message.reference:
