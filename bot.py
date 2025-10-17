@@ -2,6 +2,7 @@ import discord
 from discord.ext import tasks
 import os
 import json
+import random
 from dotenv import load_dotenv
 from ufc_fetch import check_and_store_ufc_events, notify_todays_ufc_events, notify_weekly_ufc_events
 import mysql.connector
@@ -23,7 +24,7 @@ config = {
 
 def get_random_record(db_config, table_name):
     """
-    Fetch a random record from a specified MariaDB/MySQL table
+    Fetch a random record from a specified table.
     
     Args:
         db_config (dict): Database connection parameters 
@@ -31,7 +32,47 @@ def get_random_record(db_config, table_name):
         table_name (str): Name of the table to query
         
     Returns:
-        tuple: Random record or None if no records found
+        dict: A dictionary containing the random record's column-value pairs, or None if the table is empty
+        
+    Raises:
+        RuntimeError: For database operation errors
+    """
+    connection = None
+    cursor = None
+    try:
+        # Establish database connection
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)  # Enable dictionary cursor for column-name access
+        
+        # Query to select a random record
+        query = f"SELECT * FROM `{table_name}` ORDER BY RAND() LIMIT 1"
+        cursor.execute(query)
+        random_record = cursor.fetchone()
+        
+        return random_record
+    
+    except mysql.connector.Error as e:
+        raise RuntimeError(f"Database error: {e}")
+    finally:
+        # Ensure resources are closed even if errors occur
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+def get_random_response(db_config, table_name, response_type):
+    """
+    Fetch a random response from a specified table based on response_type.
+    
+    Args:
+        db_config (dict): Database connection parameters 
+            (keys: 'host', 'user', 'password', 'database')
+        table_name (str): Name of the table to query
+        response_type (str): The type of response to filter by
+        
+    Returns:
+        str: A random response string or None if no matching records found
         
     Raises:
         RuntimeError: For database operation errors
@@ -44,12 +85,14 @@ def get_random_record(db_config, table_name):
         cursor = connection.cursor()
         
         # Parameterized query to prevent SQL injection
-        query = f"SELECT * FROM `{table_name}` ORDER BY RAND() LIMIT 1"
+        query = f"SELECT response FROM `{table_name}` WHERE response_type = %s ORDER BY RAND() LIMIT 1"
         
-        cursor.execute(query)
+        cursor.execute(query, (response_type,))
         random_record = cursor.fetchone()
         
-        return random_record
+        if random_record:
+            return random_record[0]
+        return None
         
     except mysql.connector.Error as e:
         raise RuntimeError(f"Database error: {e}")
@@ -59,6 +102,7 @@ def get_random_record(db_config, table_name):
             cursor.close()
         if connection and connection.is_connected():
             connection.close()
+
 
 def write_wall_of_shame(db_config, table_name, record_data):
     """
@@ -117,7 +161,7 @@ def write_wall_of_shame(db_config, table_name, record_data):
         if connection and connection.is_connected():
             connection.close()
 
-@tasks.loop(hours=730)  # Run once a month
+@tasks.loop(hours=48)  # Run once every 2 days
 async def monthly_event_check():
     """Fetches and stores UFC events for the month."""
     try:
@@ -253,6 +297,21 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    # Mitch chances command
+    if 'mitch' in message.content.lower() and 'chance' in message.content.lower():
+        try:
+            response = get_random_response(config, 'response_table', 'mitch_chances')
+            if response:
+                response = response.replace('{mitch}', '<@188811391610650624>')
+                response = response.replace('{pc}', str(random.randint(30, 100)))
+                await message.channel.send(response)
+            else:
+                await message.channel.send("Looking extremely unlikely.")
+        except RuntimeError as e:
+            print(f"Error getting mitch_chances response: {e}")
+            await message.channel.send("I'm having trouble talking to the db. beep boop.")
+        return
+
     # UFC channel add command
     if message.content.startswith(f'{prefix}ufcadd'):
         if not message.author.guild_permissions.administrator:
@@ -319,40 +378,9 @@ async def on_message(message):
         commands.append(f"`{prefix}help` - Show this help message.")
         commands.append(f"`{prefix}ufcadd` - Add provided discord channel id to UFC notifications (admin only).")
         commands.append(f"`{prefix}ufcrem` - Remove this channel from UFC notifications (admin only).")
-        commands.append(f"`{prefix}wos` - Add a replied-to message to the Wall of Shame (reply to a message and use this command).")
         help_text = "**Available Commands:**\n" + "\n".join(commands)
         await message.channel.send(help_text)
         return
-
-    
-#     if message.content.startswith(f'{prefix}wos'):
-#         if not message.reference:
-#             await message.channel.send("You need to reply to a message, dumbass")
-#             return
-#         try:
-#             wos_msg = await message.channel.fetch_message(message.reference.message_id)
-#             attachment_urls = [attachment.url for attachment in wos_msg.attachments]
-#             attachments_json_string = json.dumps(attachment_urls)
-#             new_record = {
-#                 'message_id': wos_msg.id,
-#                 'author_id': wos_msg.author.id,
-#                 'author': wos_msg.author.name,
-#                 'author_url' : wos_msg.author.avatar.url,
-#                 'content': wos_msg.content,
-#                 'channel_name': wos_msg.channel.name,
-#                 'channel_id': wos_msg.channel.id,
-#                 'created_at': wos_msg.created_at,
-#                 'guild_name': wos_msg.guild.name,
-#                 'guild_id': wos_msg.guild.id,
-#                 'attachment_urls': attachments_json_string
-#             }
-#             write_wall_of_shame(config, 'wall_of_shame', new_record)
-#             await message.channel.send(f"Yep, that shit was so dumb, {wos_msg.author.name}, it's going on the [Wall of Shame](https://www.tekkie.com.au/wos/index.html)!") 
-#             await message.delete()
-
-#         except RuntimeError as e:
-#             await message.channel.send(f"Error: {e}")
-
 
 # Read token from environment variable
 token = os.getenv('DISCORD_BOT_TOKEN')
