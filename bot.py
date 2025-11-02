@@ -6,6 +6,7 @@ import random
 from dotenv import load_dotenv
 from ufc_fetch import check_and_store_ufc_events, notify_todays_ufc_events, notify_weekly_ufc_events
 import mysql.connector
+import requests
 
 load_dotenv()
 
@@ -14,6 +15,10 @@ client = discord.Client(intents=intents)
 
 prefix = os.getenv('PREFIX')
 admin_user_id = int(os.getenv('ADMIN_USER_ID'))
+crafty_api_token = os.getenv('CRAFTY_API_TOKEN')
+crafty_api_url = os.getenv('CRAFTY_API_URL')
+crafty_server_id = os.getenv('CRAFTY_SERVER_ID')
+crafty_insecure_ssl = os.getenv('CRAFTY_INSECURE_SSL', 'false').lower() == 'true'
 
 config = {
     'host': os.getenv('SQL_SERVER'),
@@ -104,6 +109,34 @@ def get_random_response(db_config, table_name, response_type):
             connection.close()
 
 
+def get_server_stats(api_url, api_token, server_id):
+    """
+    Fetch server statistics from the Crafty API.
+    
+    Args:
+        api_url (str): The base URL of the Crafty API
+        api_token (str): The API token for authentication
+        server_id (str): The ID of the server to get stats for
+        
+    Returns:
+        dict: A dictionary containing the server stats, or None if an error occurs
+    """
+    if not all([api_url, api_token, server_id]):
+        print("⚠️ Crafty API config missing from .env file")
+        return None
+        
+    headers = {
+        'Authorization': f'Bearer {api_token}'
+    }
+    try:
+        response = requests.get(f'{api_url}/api/v2/servers/{server_id}/stats', headers=headers, verify=not crafty_insecure_ssl)
+        response.raise_for_status()
+        return response.json().get('data')
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching server stats: {e}")
+        return None
+
+
 def write_wall_of_shame(db_config, table_name, record_data):
     """
     Insert a record into a MariaDB/MySQL table
@@ -171,6 +204,22 @@ async def monthly_event_check():
 
 @monthly_event_check.before_loop
 async def before_monthly_check():
+    await client.wait_until_ready()
+
+@tasks.loop(minutes=1)
+async def update_rich_presence():
+    """Updates the bot's Rich Presence with the current server player count."""
+    stats = get_server_stats(crafty_api_url, crafty_api_token, crafty_server_id)
+    if stats and stats.get('running'):
+        player_count = stats.get('online', 0)
+        max_players = stats.get('max', 0)
+        activity_name = f"Reclaimation: {player_count}/{max_players} players online"
+        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=activity_name))
+    else:
+        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name="Server Offline"))
+
+@update_rich_presence.before_loop
+async def before_update_rich_presence():
     await client.wait_until_ready()
 
 async def elevate(guild):
@@ -274,7 +323,7 @@ async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})')
 
     print('Starting Rich presence...')
-    await client.change_presence(activity=discord.Streaming(name="The Curse of the Were-Rabbit", url="https://www.youtube.com/watch?v=1BQ_p73bPZg"))
+    update_rich_presence.start()
 
     print("\nStarting elevation process...\n")
     for guild in client.guilds:
@@ -289,6 +338,8 @@ async def on_ready():
 
         print("\nStarting weekly UFC notify task...")
         weekly_ufc_notify_task.start()
+    else:
+        print("\nUFC monitoring is disabled.")
     
     print("\nListening for commands...")
     
