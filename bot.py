@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from ufc_fetch import check_and_store_ufc_events, notify_todays_ufc_events, notify_weekly_ufc_events
 import mysql.connector
 import requests
+import matplotlib.pyplot as plt
+import io
 
 load_dotenv()
 
@@ -19,6 +21,8 @@ crafty_api_token = os.getenv('CRAFTY_API_TOKEN')
 crafty_api_url = os.getenv('CRAFTY_API_URL')
 crafty_server_id = os.getenv('CRAFTY_SERVER_ID')
 crafty_insecure_ssl = os.getenv('CRAFTY_INSECURE_SSL', 'false').lower() == 'true'
+rich_presence_mode = os.getenv('RICH_PRESENCE_MODE', 'minecraft')
+rich_presence_static_string = os.getenv('RICH_PRESENCE_STATIC_STRING', 'Gromit')
 
 config = {
     'host': os.getenv('SQL_SERVER'),
@@ -194,6 +198,33 @@ def write_wall_of_shame(db_config, table_name, record_data):
         if connection and connection.is_connected():
             connection.close()
 
+def create_chances_graph(chance_percentage):
+    """Creates a bar graph of Mitch's chances."""
+    fig, ax = plt.subplots()
+    outcomes = ['Success', 'Failure']
+    chances = [chance_percentage, 100 - chance_percentage]
+    colors = ['#4CAF50', '#F44336']  # Green for success, Red for failure
+    
+    bars = ax.bar(outcomes, chances, color=colors)
+    
+    # Add percentage labels on top of bars
+    for bar in bars:
+        yval = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 1, f'{yval}%', ha='center', va='bottom')
+
+    ax.set_ylabel('Probability (%)')
+    ax.set_title("Mitch's Chances Analysis")
+    ax.set_ylim(0, 110)  # Give some space for the labels
+    ax.set_yticks(range(0, 101, 10))
+    
+    # Save plot to a bytes buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
 @tasks.loop(hours=48)  # Run once every 2 days
 async def monthly_event_check():
     """Fetches and stores UFC events for the month."""
@@ -208,15 +239,18 @@ async def before_monthly_check():
 
 @tasks.loop(minutes=1)
 async def update_rich_presence():
-    """Updates the bot's Rich Presence with the current server player count."""
-    stats = get_server_stats(crafty_api_url, crafty_api_token, crafty_server_id)
-    if stats and stats.get('running'):
-        player_count = stats.get('online', 0)
-        max_players = stats.get('max', 0)
-        activity_name = f"Reclaimation: {player_count}/{max_players} players online"
-        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=activity_name))
-    else:
-        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name="Server Offline"))
+    """Updates the bot's Rich Presence based on the configured mode."""
+    if rich_presence_mode == 'static':
+        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=rich_presence_static_string))
+    else:  # Default to 'minecraft'
+        stats = get_server_stats(crafty_api_url, crafty_api_token, crafty_server_id)
+        if stats and stats.get('running'):
+            player_count = stats.get('online', 0)
+            max_players = stats.get('max', 0)
+            activity_name = f"Reclaimation: {player_count}/{max_players} players online"
+            await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=activity_name))
+        else:
+            await client.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name="Server Offline"))
 
 @update_rich_presence.before_loop
 async def before_update_rich_presence():
@@ -352,12 +386,20 @@ async def on_message(message):
     if 'mitch' in message.content.lower() and 'chance' in message.content.lower():
         try:
             response = get_random_response(config, 'response_table', 'mitch_chances')
+            chance_pc = random.randint(0, 100)
             if response:
                 response = response.replace('{mitch}', '<@188811391610650624>')
-                response = response.replace('{pc}', str(random.randint(30, 100)))
+                response = response.replace('{pc}', str(chance_pc))
                 await message.channel.send(response)
             else:
                 await message.channel.send("Looking extremely unlikely.")
+
+            # 25% chance to send a graph
+            if random.random() < 0.25:
+                graph_buffer = create_chances_graph(chance_pc)
+                file = discord.File(graph_buffer, filename="mitch_chances.png")
+                await message.channel.send(file=file)
+
         except RuntimeError as e:
             print(f"Error getting mitch_chances response: {e}")
             await message.channel.send("I'm having trouble talking to the db. beep boop.")
