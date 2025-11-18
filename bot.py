@@ -201,7 +201,7 @@ def write_wall_of_shame(db_config, table_name, record_data):
 def create_chances_graph(chance_percentage):
     """Creates a bar graph of Mitch's chances."""
     fig, ax = plt.subplots()
-    outcomes = ['Success', 'Failure']
+    outcomes = ['Available', 'Family Time']
     chances = [chance_percentage, 100 - chance_percentage]
     colors = ['#4CAF50', '#F44336']  # Green for success, Red for failure
     
@@ -212,8 +212,8 @@ def create_chances_graph(chance_percentage):
         yval = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2.0, yval + 1, f'{yval}%', ha='center', va='bottom')
 
-    ax.set_ylabel('Probability (%)')
-    ax.set_title("Mitch's Chances Analysis")
+    ax.set_ylabel('Chance (%)')
+    ax.set_title("Will He Show Up?")
     ax.set_ylim(0, 110)  # Give some space for the labels
     ax.set_yticks(range(0, 101, 10))
     
