@@ -1,7 +1,39 @@
+# --- Core Bot Settings ---
+# The prefix for bot commands (e.g., $, !, ?)
 PREFIX=
+# The Discord User ID of the bot administrator
 ADMIN_USER_ID=
-SQL_SERVER=
-SQL_USER=
-SQL_PASSWORD=
-SQL_DATABASE=
+# The token for your Discord bot
 DISCORD_BOT_TOKEN=
+
+# --- Rich Presence Settings ---
+# The mode for the bot's rich presence. Can be 'minecraft' or 'static'.
+# 'minecraft': Shows Minecraft server player count from Crafty.
+# 'static': Shows a custom static string.
+RICH_PRESENCE_MODE=
+# The static string to display when RICH_PRESENCE_MODE is 'static'.
+RICH_PRESENCE_STATIC_STRING=
+
+# --- SQL Database Settings ---
+# The hostname or IP address of your MySQL/MariaDB server.
+SQL_SERVER=
+# The username for the database.
+SQL_USER=
+# The password for the database.
+SQL_PASSWORD=
+# The name of the database to use.
+SQL_DATABASE=
+
+# --- Crafty API Settings (for 'minecraft' Rich Presence) ---
+# The URL for your Crafty Controller API.
+CRAFTY_API_URL=
+# The API token for your Crafty Controller.
+CRAFTY_API_TOKEN=
+# The ID of the Minecraft server in Crafty.
+CRAFTY_SERVER_ID=
+# Set to 'true' to ignore SSL certificate errors when connecting to Crafty API.
+CRAFTY_INSECURE_SSL=
+
+# --- UFC Monitoring Settings ---
+# Set to 'true' to enable UFC event fetching and notifications.
+UFC_MONITORING=

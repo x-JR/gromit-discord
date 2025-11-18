@@ -4,3 +4,4 @@ python-dotenv
 ics
 requests
 pytz
+matplotlib
